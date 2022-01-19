@@ -1,0 +1,41 @@
+---
+title: "Live session 1.2: MLR hypothesis testing"
+author: "Matthew Ragoza"
+date: "1/19/2022"
+always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+    toc: false
+    number_sections: false
+    toc_depth: '3'
+    code_folding: show
+---
+
+## Read in the data.
+
+```{r}
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-1\\live-session-1')
+data <- read.csv('Module1Topics1and2Example.csv')
+data
+```
+
+## Fit linear regression models on one, two, or three covariates.
+
+```{r}
+model1   <- lm(y ~ x1, data=data)
+model12  <- lm(y ~ x1 + x2, data=data)
+model123 <- lm(y ~ x1 + x2 + x3, data=data)
+```
+
+## Partial F tests using variables added in order.
+
+```{r}
+summary(model1)
+anova(model1, model12, model123)
+```
+## Partial F tests using variables added last.
+
+```{r}
+summary(model123)
+```
