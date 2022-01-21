@@ -1,0 +1,69 @@
+---
+title: "Live session 1.3: Confounding and interactions"
+author: "Matthew Ragoza"
+date: "1/21/2022"
+always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+    toc: false
+    number_sections: false
+    toc_depth: '3'
+    code_folding: show
+---
+
+## Read in the data.
+
+```{r}
+library('ggplot2')
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-1\\live-sessions')
+data <- read.csv('Module1Topic3Example.csv')
+data$sex <- factor(data$sex, labels=c('male', 'female'))
+data
+```
+
+## Fit linear regression model with interaction term.
+
+```{r}
+model <- lm(sbp ~ age + sex + age*sex, data=data)
+```
+
+## Perform partial F test on interaction coefficient.
+
+```{r}
+summary(model)
+anova(model)
+```
+The p-value of 0.9342 is not less than $\alpha$=0.05, so we do not reject the null hypothesis. We do not have evidence of a significant interaction.
+
+## Create an interaction plot to check parallelism.
+
+```{r, fig.width=5, fig.height=4}
+ggplot(
+  data=data,
+  aes(x=age, y=sbp, group=sex)
+) +
+  geom_point(aes(shape=sex)) +
+  geom_smooth(method='lm', aes(linetype=sex), color='black') +
+  theme_classic()
+```
+
+The interaction plot supports the conclusion of the hypothesis test, as it appears that the lines are parallel for the different sex categories.
+
+## Perform partial F test for coincidence.
+
+```{r}
+reduced_model = lm(sbp ~ age, data=data)
+anova(reduced_model, model)
+```
+
+## Check for confounding
+
+```{r}
+model = lm(sbp ~ sex, data=data)
+adjusted_model = lm(sbp ~ sex + age, data=data)
+summary(model)
+summary(adjusted_model) # check whether sex coefficient changed >= 10%
+```
+
+TODO run margins command to get unadusted sbp means by sex
