@@ -1,0 +1,519 @@
+---
+title: "BIOST 2049 - Data Analysis #2"
+author: "Matthew Ragoza"
+date: "2/5/2022"
+always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: false
+    toc_depth: '3'
+    code_folding: hide
+  github_document:
+    toc: true
+---
+
+# Animal study of toluene levels in blood after exposure
+
+The data used in this analysis are from a study of toluene levels in blood after a 3-hour inhalation exposure in rats. In addition to the level of toluene in blood (`bloodtol`, in ppm), the researchers measured the concentration of toluene in the air during the exposure period (renamed from `newppm` to `expostol`, in ppm), the age of the rat (`age`, in days), the weight of the rat (`weight`, in grams), and an indicator of snout size (`snoutsize`, either long or short).
+
+```{r warning=FALSE, message=FALSE}
+library('dplyr')
+library('tidyverse')
+library('reshape2')
+library('ggplot2')
+library('gridExtra')
+library('scales')
+library('car')
+library('MASS')
+
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-2\\data-analysis')
+data <- read.csv('DA2.csv')
+names(data)[5] <- 'expostol' # rename exposure concentration of toluene
+data$snoutsize <- factor(data$snoutsize, levels=c(1, 2), labels=c('short', 'long'), ordered=TRUE)
+data
+```
+## Part a. Descriptive statistics
+
+We can begin to investigate the data using numerical and visual descriptions of the covariates and their relationship to toluene levels in blood after inhalation exposure.
+
+### Quantitative variables
+
+The table below displays measures of center and spread for each of the quantitative variables in the data set. The mean blood toluene level was 11.00 ppm with a standard deviation of 12.62 ppm. The median of 6.54 ppm was about 50% less than the mean, implying a highly right-skewed distribution. The distributions of weight (mean = 380.55 g, std = 72.71 g) and age (mean = 83.40 days, std = 5.70 days) were more symmetric, as seen by their similar means and medians (median weight = 373.50 g, median age = 85 days). The mean exposure concentration was 292.48 ppm with a standard deviation of 311.99 ppm. This distribution was also highly right-skewed, as indicated by the lower median of 104.50 ppm.
+
+```{r}
+data %>%
+  group_by(rat) %>%
+  select_if(is.numeric) %>%
+  melt(id.vars='rat') %>%
+  group_by(variable) %>%
+  summarize(
+    count=n(),
+    mean=mean(value),
+    std=sd(value),
+    min=min(value),
+    Q1=quantile(value, 0.25),
+    Q2=quantile(value, 0.50),
+    Q3=quantile(value, 0.75),
+    max=max(value)
+  ) %>%
+  mutate_if(is.double, round, digits=2)
+```
+
+### Categorical variables
+
+The table below shows the counts and proportions of rats with each snout size in the data set. Out of the 60 total rats in the study, 45 (75%) had long snouts while 15 (25%) had short snouts.
+
+```{r}
+data %>%
+  group_by(rat) %>%
+  select_if(is.factor) %>%
+  melt(id.vars='rat') %>%
+  group_by(variable, value) %>%
+  summarize(
+    .groups='drop_last',
+    count=n()
+  ) %>%
+  mutate(
+    proportion=count/sum(count)
+  ) %>%
+  ungroup() %>%
+  mutate_if(is.double, label_percent())
+```
+
+### Data visualization
+
+We can further analyze each variable by plotting their distributions as histograms, which can be seen below. The histograms of each quantitative variable match our expectations given the descriptive statistics: the distributions of exposure concentration and blood concentration are right-skewed, while the distributions of weight and age are roughly symmetric.
+
+We can also consider the joint distribution of each covariate with blood toluene levels using scatter plots. Blood toluene levels appear to have a strong positive association with exposure concentration, a weak positive association with age, and a weak negative assoiation with snout size (long snouts have lower blood toluene). Weight does not appear to be linearly associated with blood toluene level, but there could be some outliers in the extremes of the weight distribution that affect the perception of this relationship.
+
+```{r, fig.width=8.5, fig.height=3, dpi=100, message=FALSE, warning=FALSE}
+
+blank <- ggplot() + theme_void()
+
+# axes scales
+y_limits  = c(0, 41) # bloodtol
+x1_limits = c(75, 727) # weight
+x2_limits = c(68, 97) # age
+x3_limits = c(0, 1000) # expostol
+x4_limits = c(0.5, 2.5) # snoutsize
+
+# axes ticks
+y_ticks  = seq(0, 40, 10)
+x1_ticks = seq(100, 700, 150)
+x2_ticks = seq(70, 100, 5)
+x3_ticks = seq(0, 1000, 250)
+x4_ticks = seq(1, 2, 1)
+
+# bin widths
+y_binwidth = (y_limits[2] - y_limits[1])/20
+x1_binwidth = (x1_limits[2] - x1_limits[1])/20
+x2_binwidth = (x2_limits[2] - x2_limits[1])/20
+x3_binwidth = (x3_limits[2] - x3_limits[1])/20
+x4_binwidth = (x4_limits[2] - x4_limits[1])/10
+
+# histograms
+
+plot_y <- data %>%
+  ggplot(aes(y=bloodtol)) +
+  geom_histogram(binwidth=y_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=seq(0, 10, 5), limits=c(0, 10)) + 
+  ylab(NULL)
+
+plot_x1 <- data %>%
+  ggplot(aes(x=weight)) +
+  geom_histogram(binwidth=x1_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x1_ticks, limits=x1_limits) + 
+  scale_y_continuous(breaks=seq(0, 25, 5), limits=c(0, 25)) + 
+  xlab(NULL)
+
+plot_x2 <- data %>%
+  ggplot(aes(x=age)) +
+  geom_histogram(binwidth=x2_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x2_ticks, limits=x2_limits) + 
+  scale_y_continuous(breaks=seq(0, 25, 5), limits=c(0, 25)) + 
+  ylab(NULL) + 
+  xlab(NULL)
+
+plot_x3 <- data %>%
+  ggplot(aes(x=expostol)) +
+  geom_histogram(binwidth=x3_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) + 
+  scale_y_continuous(breaks=seq(0, 25, 5), limits=c(0, 25)) + 
+  ylab(NULL) + 
+  xlab(NULL)
+
+plot_x4 <- data %>%
+  mutate(snoutsize=as.numeric(snoutsize)) %>%
+  ggplot(aes(x=snoutsize)) +
+  geom_histogram(binwidth=x4_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x4_ticks, limits=x4_limits, labels=levels(data$snoutsize)) + 
+  scale_y_continuous(breaks=seq(0, 50, 25), limits=c(0, 50)) + 
+  ylab(NULL) + 
+  xlab(NULL)
+
+# scatter plots
+
+plot_yx1 <- data %>%
+  ggplot(aes(x=weight, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x1_ticks, limits=x1_limits)
+
+plot_yx2 <- data %>%
+  ggplot(aes(x=age, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x2_ticks, limits=x2_limits) + 
+  ylab(NULL)
+
+plot_yx3 <- data %>%
+  ggplot(aes(x=expostol, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) + 
+  ylab(NULL)
+
+plot_yx4 <- data %>%
+  mutate(snoutsize=as.numeric(snoutsize)) %>%
+  ggplot(aes(x=snoutsize, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x4_ticks, limits=x4_limits, labels=levels(data$snoutsize)) + 
+  ylab(NULL)
+
+# arrange plots on grid
+
+grid.arrange(
+  plot_x1,  plot_x2,  plot_x3,  plot_x4,  blank,
+  plot_yx1, plot_yx2, plot_yx3, plot_yx4, plot_y,
+  nrow=2, heights=c(1.15, 2.35),
+  ncol=5, widths=c(2.35, 2.20, 2.20, 2.20, 1.20)
+)
+```
+
+## Part b. Exposure concentration and blood concentration
+
+The primary research question is whether there is a linear relationship between levels of toluene in the blood and level of inhalation exposure. From the scatter plot above, it appears that the expected concentration of blood toluene increases linearly with the exposure concentration, which is a key assumption of linear regression.
+
+### Simple linear regression
+
+We can fit a simple linear regression model to evaluate this relationship, with the summary displayed below. The null hypothesis of the F test is that the covariate (exposure concentration) does not explain a significant amount of the variance in the outcome (blood concentration). With the p-value of 2.2e-16, we reject the null hypothesis at a significance level of $\alpha=0.05$. Therefore, we have very strong evidence that toluene exposure concentration explains a significant amount of the variance in blood concentration of toluene. The $R^2$ of 0.7492 means that about 75% of the variance in blood concentration of toluene is explained by exposure level.
+
+```{r}
+model <- lm(bloodtol ~ expostol, data)
+summary(model)
+```
+### Residual diagnostics
+
+As a follow-up check on the normality assumption of linear regression, we can plot the residuals of the regression model below. On the left are the Jack knife residuals plotted against the predicted values. The fitted line has nearly zero slope, which suggests that the conditional mean of the residuals is zero for all predicted values. There are no systematic changes in residual variance with respect to the predicted values, either. On the right is a Q-Q plot showing the residual quantiles compared to the quantiles of a normal distribution. Most of the points follow a roughly linear pattern, except for two prominent outlier residuals. Overall, it does not appear that the normality assumption of linear regression was violated.
+
+```{r fig.width=6.5, fig.height=4, dpi=100, message=FALSE, warning=FALSE}
+
+data$predicted <- fitted(model)
+data$residual <- studres(model)
+normal <- qnorm(ppoints(60)[order(data$residual)])
+
+# axes scales
+r_limits = c(-6, 6)
+p_limits = c(-5, 45)
+n_limits = c(-3, 3)
+
+# axes ticks
+r_ticks = seq(r_limits[1], r_limits[2], 2)
+p_ticks = seq(p_limits[1], p_limits[2], 10)
+n_ticks = seq(n_limits[1], n_limits[2], 1)
+
+# bin widths
+r_binwidth = (r_limits[2] - r_limits[1])/20
+p_binwidth = (p_limits[2] - p_limits[1])/20
+n_binwidth = (n_limits[2] - n_limits[1])/20
+
+# histogram
+plot_r <- data %>%
+  ggplot(aes(y=residual)) +
+  geom_histogram(binwidth=r_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=r_ticks, limits=r_limits) + 
+  scale_x_continuous(limits=c(0, 30)) +
+  ylab(NULL)
+
+plot_p <- data %>%
+  ggplot(aes(x=predicted)) +
+  geom_histogram(binwidth=p_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=p_ticks, limits=p_limits) + 
+  scale_y_continuous(limits=c(0, 25)) +
+  xlab(NULL)
+
+plot_n <- data %>%
+  ggplot(aes(x=normal)) +
+  geom_density(size=0.8, fill='lightgray', alpha=1/2) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=n_ticks, limits=n_limits) +
+  scale_y_continuous(limits=c(0, 0.4)) + 
+  xlab(NULL)
+
+plot_pr <- data %>%
+  ggplot(aes(x=predicted, y=residual)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=r_ticks, limits=r_limits) +
+  scale_x_continuous(breaks=p_ticks, limits=p_limits)
+
+# Q-Q plot
+plot_rn <- data %>%
+  ggplot(aes(sample=residual)) +
+  geom_qq_line(distribution=qnorm, size=1) +
+  geom_qq(distribution=qnorm) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=r_ticks, limits=r_limits) +
+  scale_x_continuous(breaks=n_ticks, limits=n_limits) +
+  xlab('normal') + 
+  ylab('residual')
+
+# arrange plots on grid
+
+grid.arrange(
+  plot_p, plot_n, blank,
+  plot_pr, plot_rn, plot_r,
+  nrow=2, heights=c(1.5, 3),
+  ncol=3, widths=c(3, 3, 1.5)
+)
+```
+
+## Part c. Multiple linear regression
+
+We would now like to include the other covariates into our model to assess their influence on the relationship between inhalation exposure to toluene and blood concentration.
+
+### Confounding variables
+
+We will fit a multiple linear regression model that includes each covariate, comparing this full model to the previous reduced model in order to check for confounding. The summary of the full multivariate model is shown below. The regression coefficient on the exposure concentration in the multivariate model is 0.0331, compared to 0.0350 in the single variable model. This is a decrease of 5.42%, which is not suggestive of confounding on the part of the added variables. Out of all of the regression coefficients, the only signifncant associations in the multivariate model are exposure level (p=2e-16) and age (p=0.0430). At a 5% significance level, we reject the null hypothesis that there is no linear association between these covariates and blood toluene levels, but we do not reject the null hypothesis for the weight and snout size covariates.
+
+```{r}
+multi_model <- lm(bloodtol ~ expostol + age + weight + snoutsize, data)
+summary(multi_model)
+```
+
+As a further check for the importance of the added covariates, we can perform a multiple partial F test, which is shown in the ANOVA table below. The null hypothesis is that adding age, weight, and snout size into a model that predicts blood concentration of toluene from exposure concentration does not explain more of the outcome variance. The alternative hypothesis is that the model with these additional covariates explains significantly more variance than the univariate model. The resulting p-value of 0.112 indicates that we would have an 11.2% probability of observing an F statistic this large if the null hypothesis were true. Therefore, we do not reject the null hypothesis at the 5% significance level, and we do not have evidence that the added variables explain more of the outcome variance than exposure concentration alone.
+
+```{r}
+anova(model, multi_model) %>%
+  mutate_if(is.double, round, digits=3)
+```
+
+### Interaction terms
+
+We will now add interaction terms to the multivariate model to check whether any of the covariates has an interaction effect with inhalation exposure. To check for the presence of interactions, we can perform a multiple partial F test comparing the interaction model with the model with all covariates, but no interaction terms. The null hypothesis is that the model with interactions terms does not explain more of the variance in blood toluene levels than the model without interaction terms. The results of the test are seen in the ANOVA table below. The p-value of 0.551 implies that we would have a 55.1% chance of obtaining an F statistic this large if the null hypothesis were true. We do not reject the null hypothesis at a 5% significance level, so there is no evidence of an interaction between exposure concentration and the other covariates.
+
+```{r}
+inter_model <- lm(
+  bloodtol ~ expostol + age + weight + snoutsize + 
+    expostol*age + expostol*weight + expostol*snoutsize,
+  data
+)
+anova(multi_model, inter_model) %>%
+  mutate_if(is.double, round, digits=3)
+```
+
+## Part d. Collinearity
+
+We can begin to investigate collinearity by creating a correlation matrix of the covariates. The strongest correlation coefficient is 0.543 between snoutsize and weight and the second largest is 0.210 between age and exposure level. There is a weak negative correlation of -0.207 between age and weight. There is essentially no correlation between snoutsize and age or exposure level.
+
+```{r}
+data %>%
+  dplyr::select(c('expostol', 'age', 'weight', 'snoutsize')) %>%
+  mutate(snoutsize=as.numeric(snoutsize)) %>%
+  cor() %>%
+  data.frame() %>%
+  mutate_if(is.double, round, digits=3)
+```
+### Variance inflation factors
+
+Correlations are insufficient to detect all forms of collinearity in a multiple regression model, so we can calculate the variance inflation factors (VIFs) as well. The VIFs for each covariate in the multiple regression model are shown below. The largest VIF is on the weight variable, with a value of 1.58. However, this is not large enough to raise concerns about collinearity affecting our model. We can conclude that multicollinearity is not an issue in this data set.
+
+```{r}
+multi_model %>%
+  vif() %>%
+  data.frame() %>%
+  rename(VIF='.') %>%
+  mutate_if(is.numeric, round, digits=2)
+```
+
+## Part e. Model selection
+
+So far, we have found that toluene exposure concentration is strongly correlated with levels of toluene in the blood, and age is weakly correlated with this outcome. However, the multivariate regression model did not explain more variance in the outcome than the univariate model. We did not detect a significant association between blood toluene levels and weight or snout size, and there was no evidence of confounding on the part of these variables. Furthermore, there was no evidence of an interaction between exposure level and any other covariate. Therefore, the best model for fitting this data set is the one that predicts blood toluene only from exposure level. 
+
+Let $\hat{y}$ be the predicted blood concentration of toluene and $x$ be the level of inhalation exposure to toluene, both in ppm. Then the selected regression model is described by the following equation:
+
+$$
+  \hat{y} = 0.03501x + 0.76422
+$$
+```{r}
+best_model <- model
+best_model
+```
+
+## Part f. Sensitivity to outliers
+
+From the previous residual diagnostics, it seems that the simple linear regression model could be affected by outliers. In particular, there were two likely outliers that showed up in the residual vs. predicted values plot and the Q-Q plot.
+
+### Outlier detection
+
+We can test whether these are truly outliers by performing t tests on the Jack knife residuals using a Bonferroni correction. For each residual, the null hypothesis is that the residual is zero. I computed the p-value of each residual under the null hypothesis, then I displayed the data rows for which the p-value was less than the significance level of 5%. The detected outliers are shown in the table below. As expected, two data points were detected as outliers. Rat 33 is an outlier because it has a relatively low blood concentration of toluene despite having the maximum exposure concentration. Rat 55 is an outlier for the opposite reason: it has a high blood concentration despite its lower exposure level.
+
+```{r}
+n = 60
+k = 4
+alpha = 0.05/n # Bonferroni correction
+data$residual_p <- pt(1 - abs(data$residual), df=n-k-2)
+data[data$residual_p < alpha/2,]
+```
+
+### Sensitivity analysis
+
+To determine whether these outliers are influential points, we can perform a sensitivity analysis. For each detected outlier, this involves comparing a model fit without that outlier in the data set to the original model fit to the full data set. We will compare the models visually using the scatter plots and fitted lines shown below. When rat 33 was removed from the data, the slope of the fitted line increased very slightly. There was almost no change whatsoever in the fitted line when rat 55 was dropped from the data. There was a slight narrowing of the standard error of the fitted lines when either outlier were dropped. Overall, neither of these outliers had a strong influence one fitted regression model.
+
+```{r, fig.width=8, fig.height=3, dpi=100, message=FALSE, warning=FALSE}
+
+rat33 <- data[data$rat == 33,]
+rat55 <- data[data$rat == 55,]
+data_no33 <- data[data$rat != 33,]
+data_no55 <- data[data$rat != 55,]
+model_no33 <- lm(bloodtol ~ expostol, data_no33)
+model_no55 <- lm(bloodtol ~ expostol, data_no55)
+
+# scatter plots
+
+plot_yx3 <- data %>%
+  ggplot(aes(x=expostol, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) +
+  ggtitle('full data')
+
+plot_yx3_no33 <- data_no33 %>%
+  ggplot(aes(x=expostol, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  geom_point(aes(x=rat33$expostol, y=rat33$bloodtol), color='red', shape=4) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) + 
+  ylab(NULL) +
+  ggtitle('no rat 33')
+
+plot_yx3_no55 <- data_no55 %>%
+  ggplot(aes(x=expostol, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  geom_point(aes(x=rat55$expostol, y=rat55$bloodtol), color='red', shape=4) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) + 
+  ylab(NULL) +
+  ggtitle('no rat 55')
+
+# arrange plots on grid
+
+grid.arrange(
+  plot_yx3, plot_yx3_no33, plot_yx3_no55,
+  nrow=1, heights=c(3),
+  ncol=3, widths=c(3, 3, 3)
+)
+```
+
+## Part g. Robust regression
+
+As an alternative to ordinary least squares, we can fit a linear regression model using robust regression. These methods are less sensitive to outliers than standard least squares approaches.
+
+### Quantitative comparison
+
+After fitting the same model statement as before but using robust regression, we can compare to the simple linear regression model. The regression coefficient on exposure concentration of toluene was 0.0362 using robust regression, which is 3.34% higher than in the simple model. There is a near-perfect correlation between the predictions of the robust model and the simple model. Although the coefficient estimates and predictions are not all that different, the standard error on the coefficients is about half the size in the robust model as the simple model.
+
+```{r}
+robust_model <- rlm(bloodtol ~ expostol, data)
+summary(robust_model)
+cor(fitted(model), fitted(robust_model))
+```
+
+### Visual comparison
+
+In the scatter plots below, we compare lines fit to the full data set either with the simple method or robust regression. The lines are nearly identical between the two methods, but it is evident that the standard error on the linear model is lower when using robust regression. One side effect of outliers is to increase the standard error on the regression coefficients. Therefore, the decreased standard error in the robust model can be viewed as a reduction in outlier sensitivity, even though the parameter estimates are similar.
+
+```{r, fig.width=5.5, fig.height=3, dpi=100, message=FALSE, warning=FALSE}
+
+# scatter plots
+
+plot_yx3 <- data %>%
+  ggplot(aes(x=expostol, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) +
+  ggtitle('simple')
+
+plot_yx3_robust <- data %>%
+  ggplot(aes(x=expostol, y=bloodtol)) +
+  geom_point() +
+  geom_smooth(method='rlm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits) + 
+  ylab(NULL) +
+  ggtitle('robust')
+
+# arrange plots on grid
+
+grid.arrange(
+  plot_yx3, plot_yx3_robust,
+  nrow=1, heights=c(3),
+  ncol=2, widths=c(3, 3)
+)
+```
+
+## Part h. Potential data transformations
+
+Based on the right-skewness of the distributions of blood concentration and exposure concentration of toluene, a data transformation could be applicable. A log transformation of both variables could potentially reduce their skewness, and would not require a preliminary shift transformation since the data are confined to positive values. The log transformation would change the interpretation of the model towards relative changes in the concentration of toluene. This is not an unusual way to talk about concentrations of pollutants or pharmacologically active ingredients. However, the reduction in model interpretability and robustness to outliers might outweight the benefits that could be attained by applying the transformation.
+
+_
+
+
