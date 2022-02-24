@@ -15,7 +15,7 @@ output:
 ## Read in the data.
 
 ```{r}
-setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-1\\live-session-1')
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-1\\live-sessions')
 data <- read.csv('Module1Topics1and2Example.csv')
 data
 ```
@@ -32,6 +32,7 @@ model123 <- lm(y ~ x1 + x2 + x3, data=data)
 
 ```{r}
 summary(model1)
+anova(model1)
 anova(model1, model12, model123)
 ```
 ## Partial F tests using variables added last.

@@ -4,14 +4,15 @@ author: "Matthew Ragoza"
 date: "2/5/2022"
 always_allow_html: true
 output:
+  github_document:
+    toc: true
   html_document:
     df_print: paged
     toc: true
     number_sections: false
     toc_depth: '3'
     code_folding: hide
-  github_document:
-    toc: true
+
 ---
 
 # Animal study of toluene levels in blood after exposure

@@ -1,0 +1,191 @@
+---
+title: "Live session 2.4: Residual diagnostics"
+author: "Matthew Ragoza"
+date: "1/28/2022"
+always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+    toc: false
+    number_sections: false
+    toc_depth: '3'
+    code_folding: show
+---
+
+## Read in the data.
+
+```{r}
+library('dplyr')
+library('tidyverse')
+library('reshape2')
+library('ggplot2')
+library('gridExtra')
+
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-2\\live-sessions')
+data <- read.csv('Module1Topics1and2Example.csv')
+data
+```
+## Descriptive statistics
+
+```{r}
+desc <- data %>%
+  melt(id.vars='patient') %>%
+  group_by(variable) %>%
+  summarize(
+    mean=mean(value),
+    SD=sd(value),
+    Q1=quantile(value, 0.25),
+    Q2=quantile(value, 0.50),
+    Q3=quantile(value, 0.75),
+    IQR=IQR(value),
+    min=min(value),
+    max=max(value)
+  ) %>%
+  mutate_if(is.numeric, round, digits=1)
+
+y_desc  <- filter(desc, variable=='y')
+x1_desc <- filter(desc, variable=='x1')
+x2_desc <- filter(desc, variable=='x2')
+x3_desc <- filter(desc, variable=='x3')
+desc
+```
+
+## Data visualization
+
+```{r, fig.width=10.5, fig.height=4.5, message=FALSE, warning=FALSE}
+
+blank <- ggplot() + theme_void()
+
+# axes scales
+y_limits  = c(4, 72)
+x1_limits = c(2, 4)
+x2_limits = c(5, 9)
+x3_limits = c(0, 32)
+
+# axes ticks
+y_ticks  = seq(y_limits[1],  y_limits[2], 10)
+x1_ticks = seq(x1_limits[1], x1_limits[2], 0.5)
+x2_ticks = seq(x2_limits[1], x2_limits[2], 1)
+x3_ticks = seq(x3_limits[1], x3_limits[2], 5)
+
+# bin widths
+y_binwidth = (y_limits[2] - y_limits[1])/20
+x1_binwidth = (x1_limits[2] - x1_limits[1])/20
+x2_binwidth = (x2_limits[2] - x2_limits[1])/20
+x3_binwidth = (x3_limits[2] - x3_limits[1])/20
+
+# histograms
+
+plot_y <- data %>%
+  ggplot(aes(y=y)) +
+  geom_histogram(binwidth=y_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits)
+
+plot_x1 <- data %>%
+  ggplot(aes(x=x1)) +
+  geom_histogram(binwidth=x1_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x1_ticks, limits=x1_limits)
+
+plot_x2 <- data %>%
+  ggplot(aes(x=x2)) +
+  geom_histogram(binwidth=x2_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x2_ticks, limits=x2_limits)
+
+plot_x3 <- data %>%
+  ggplot(aes(x=x3)) +
+  geom_histogram(binwidth=x3_binwidth) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits)
+
+# scatter plots
+
+plot_yx1 <- data %>%
+  ggplot(aes(x=x1, y=y)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x1_ticks, limits=x1_limits)
+
+plot_yx2 <- data %>%
+  ggplot(aes(x=x2, y=y)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x2_ticks, limits=x2_limits)
+
+plot_yx3 <- data %>%
+  ggplot(aes(x=x3, y=y)) +
+  geom_point() +
+  geom_smooth(method='lm', color='black') +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(breaks=y_ticks, limits=y_limits) +
+  scale_x_continuous(breaks=x3_ticks, limits=x3_limits)
+
+# arrange plots on grid
+
+grid.arrange(
+  plot_x1,  plot_x2,  plot_x3,  blank,
+  plot_yx1, plot_yx2, plot_yx3, plot_y,
+  nrow=2, heights=c(1.5, 3),
+  ncol=4, widths=c(3, 3, 3, 1.5)
+)
+```
+
+
+## Fit linear regression model with interaction term.
+
+```{r}
+model <- lm(sbp ~ age + sex + age*sex, data=data)
+```
+
+## Perform partial F test on interaction coefficient.
+
+```{r}
+summary(model)
+anova(model)
+```
+The p-value of 0.9342 is not less than $\alpha$=0.05, so we do not reject the null hypothesis. We do not have evidence of a significant interaction.
+
+## Create an interaction plot to check parallelism.
+
+```{r, fig.width=5, fig.height=4}
+ggplot(
+  data=data,
+  aes(x=age, y=sbp, group=sex)
+) +
+  geom_point(aes(shape=sex)) +
+  geom_smooth(method='lm', aes(linetype=sex), color='black') +
+  theme_classic()
+```
+
+The interaction plot supports the conclusion of the hypothesis test, as it appears that the lines are parallel for the different sex categories.
+
+## Perform partial F test for coincidence.
+
+```{r}
+reduced_model = lm(sbp ~ age, data=data)
+anova(reduced_model, model)
+```
+
+## Check for confounding
+
+```{r}
+model = lm(sbp ~ sex, data=data)
+adjusted_model = lm(sbp ~ sex + age, data=data)
+summary(model)
+summary(adjusted_model) # check whether sex coefficient changed >= 10%
+```
+
+TODO run margins command to get unadusted sbp means by sex
