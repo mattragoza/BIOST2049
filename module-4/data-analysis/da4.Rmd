@@ -1,0 +1,548 @@
+---
+title: "BIOST 2049 - Data Analysis #4"
+author: "Matthew Ragoza"
+date: "3/15/2022"
+always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: false
+    toc_depth: '3'
+    code_folding: hide
+  github_document:
+    toc: true
+---
+
+# Prostate cancer study
+
+This data set used in this analysis originated from a study at an academic cancer center on the penetration of the prostatic capsule among patients with prostate cancer. The study involved 374 patients with prostate cancer, 151 of whom had tumors that penetrated the prostatic capsule.
+
+```{r warning=FALSE, message=FALSE}
+library('dplyr')
+library('tidyverse')
+library('reshape2')
+library('ggplot2')
+library('gridExtra')
+library('scales')
+library('stats')
+library('lmtest')
+library('performance')
+
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-4\\data-analysis')
+data <- read.csv('DA4.csv')
+
+convert_factors = function(data) {
+  data$capsule = factor(data$capsule, levels=0:1, labels=c('no', 'yes'), ordered=FALSE)
+  data$race = factor(data$race, levels=1:2, labels=c('white', 'black'), ordered=FALSE)
+  data$dpros = factor(data$dpros, levels=1:4, labels=c('none', 'left', 'right', 'both'), ordered=FALSE)
+  data$dcaps = factor(data$dcaps, levels=1:2, labels=c('no', 'yes'), ordered=FALSE)
+  return(data)
+}
+
+data = convert_factors(data)
+data
+```
+
+## Categorical variables
+
+The key dependent variable of interest is `capsule`, a binary indicator for whether the patient's condition included penetration of their prostatic capsule (present in 40.37% of the sample). In addition, the `race` of the patient was recorded (90.37% white, 9.63% black) and two clinical measures relevant to prostate cancer staging. These are `dpros`, a four-level qualitative result for the presence of cancer nodules from digital rectal examination (25.67% none, 35.03% left, 25.40% right, 13.90% both) and `dcaps`, a binary indicator of whether capsular involvement was detected during rectal examination (detected in 10.70% in sample).
+
+```{r}
+data %>%
+  group_by(capsule) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+
+```{r}
+data %>%
+  group_by(race) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+
+```{r}
+data %>%
+  group_by(dpros) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+```{r}
+data %>%
+  group_by(dcaps) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+
+
+```{r, fig.width=8, fig.height=3.6, dpi=100, warning=FALSE, message=FALSE}
+
+blank <- ggplot() + theme_void()
+
+red = 'orchid'
+green = 'mediumseagreen'
+blue = 'cornflowerblue'
+
+alpha_scale = function(data, x, y){
+  cond = data %>%
+    group_by({{x}}, {{y}}) %>%
+    summarize(n=n(), .groups='drop_last') %>%
+    mutate(prob=n/sum(n))
+  scale_alpha_continuous(range=range(cond$prob))
+}
+
+# histograms
+
+plot_x1 <- data %>%
+  ggplot(aes(x=race)) +
+  geom_bar(fill=green) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(n.breaks=4) +
+  xlab(NULL)
+
+plot_x2 <- data %>%
+  ggplot(aes(x=dpros)) +
+  geom_bar(fill=green) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(n.breaks=3) +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_x3 <- data %>%
+  ggplot(aes(x=dcaps)) +
+  geom_bar(fill=green) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(n.breaks=4) +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_y <- data %>%
+  ggplot(aes(y=capsule)) +
+  geom_bar(fill=red) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(n.breaks=3) +
+  ylab(NULL)
+
+# scatter plots
+
+plot_yx1 <- data %>%
+  group_by(race, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=race, y=capsule, alpha=prop)) +
+  geom_raster(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  alpha_scale(data, race, capsule)
+
+plot_yx2 <- data %>%
+  group_by(dpros, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=dpros, y=capsule, alpha=prop)) +
+  geom_raster(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  alpha_scale(data, dpros, capsule) +
+  ylab(NULL)
+
+plot_yx3 <- data %>%
+  group_by(dcaps, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=dcaps, y=capsule, alpha=prop)) +
+  geom_raster(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  alpha_scale(data, dcaps, capsule) +
+  ylab(NULL)
+
+# arrange plots on grid
+
+grid.arrange(
+    plot_x1,  plot_x2,  plot_x3,  blank,
+    plot_yx1, plot_yx2, plot_yx3, plot_y,
+    ncol=4, widths=c(2, 2, 2, 1),
+    nrow=2, heights=c(1, 2)
+)
+```
+
+The figure above shows the distributions of each of the categorical variables in the data set, and the conditional distributions of `capsule` given each independent categorical variable. It appears from the conditional plots that `dpros` and `dcaps` are both moderately associated with `capsule`, but there is very little relation between `race` and the dependent variable.
+
+## Quantitative variables
+
+Four quantitative variables were also collected during the course of this study. The `age` of the patient in years ranged from 47 to 79 with a mean of 66.07 and standard deviation of 6.45. The researchers also recorded the level of prostatic specific antigen (`psa`, mg/ml, median = 8.80, IQR = [5, 17.02]), which had a very right-skewed distribution. The volume of the tumor was measured using ultrasound (`vol`, cm^3, median = 14.35, IQR = [0, 26.60]) and also followed a right-skewed distribution. Finally, the Gleason score of the patients was included (`gleason`, mean = 6.42, standard deviation = 0.99), which ranges on a scale from 2 to 10.
+
+```{r}
+data %>%
+  group_by(id) %>%
+  select_if(is.numeric) %>%
+  melt(id.vars='id') %>%
+  group_by(variable) %>%
+  summarize(
+    count=n(),
+    mean=mean(value),
+    std=sd(value),
+    min=min(value),
+    Q1=quantile(value, 0.25),
+    Q2=quantile(value, 0.50),
+    Q3=quantile(value, 0.75),
+    max=max(value)
+  ) %>%
+  mutate_if(is.double, round, digits=2)
+```
+
+```{r, fig.width=8.5, fig.height=3.2}
+
+# function for mapping continuous values to bin centers
+discretize = function(x, breaks) {
+  centers = head(breaks, -1) + diff(breaks)/2
+  idxs = cut(x, breaks=breaks, include.lowest=TRUE, labels=FALSE)
+  centers[idxs]
+}
+
+alpha_scale = function(data, x, y){
+  cond = data %>%
+    group_by({{x}}, {{y}}) %>%
+    summarize(n=n(), .groups='drop_last') %>%
+    mutate(prob=n/sum(n))
+  scale_alpha_continuous(range=range(cond$prob))
+}
+
+# grid settings
+
+# age
+x4_breaks = seq(45, 85, 10)
+x4_scale = scale_x_continuous(limits=c(45, 85), breaks=x4_breaks)
+
+# psa
+x5_breaks = seq(0, 150, 25)
+x5_scale = scale_x_continuous(limits=c(0, 150), breaks=x5_breaks)
+
+# vol
+x6_breaks = seq(0, 100, 20)
+x6_scale = scale_x_continuous(limits=c(0, 100), breaks=x6_breaks)
+
+# gleason
+x7_breaks = seq(3.5, 9.5, 1)
+x7_scale = scale_x_continuous(limits=c(3.5, 9.5), breaks=seq(3, 9, 1))
+
+# capsule
+y_scale = scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.25))
+
+# histograms
+
+plot_x4 <- data %>%
+  ggplot(aes(x=age)) +
+  geom_histogram(fill=green, breaks=x4_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x4_scale +
+  xlab(NULL)
+
+plot_x5 <- data %>%
+  ggplot(aes(x=psa)) +
+  geom_histogram(fill=green, breaks=x5_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x5_scale +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_x6 <- data %>%
+  ggplot(aes(x=vol)) +
+  geom_histogram(fill=green, breaks=x6_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x6_scale +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_x7 <- data %>%
+  ggplot(aes(x=gleason)) +
+  geom_histogram(fill=green, breaks=x7_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x7_scale +
+  xlab(NULL) +
+  ylab(NULL)
+
+# scatter plots
+
+plot_yx4 <- data %>%
+  mutate(age=discretize(age, breaks=x4_breaks)) %>%
+  group_by(age, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=age, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x4_scale + alpha_scale(data, discretize(age, breaks=x4_breaks), capsule)
+
+plot_yx5 <- data %>%
+  mutate(psa=discretize(psa, breaks=x5_breaks)) %>%
+  group_by(psa, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=psa, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) + 
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x5_scale + alpha_scale(data, discretize(psa, breaks=x5_breaks), capsule) +
+  ylab(NULL)
+
+plot_yx6 <- data %>%
+  mutate(vol=discretize(vol, breaks=x6_breaks)) %>%
+  group_by(vol, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=vol, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x6_scale + alpha_scale(data, discretize(vol, breaks=x6_breaks), capsule) +
+  ylab(NULL)
+
+plot_yx7 <- data %>%
+  group_by(gleason, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=gleason, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x7_scale + alpha_scale(data, gleason, capsule) +
+  ylab(NULL)
+
+# arrange plots on grid
+
+grid.arrange(
+    plot_x4,  plot_x5,  plot_x6,  plot_x7,  blank,
+    plot_yx4, plot_yx5, plot_yx6, plot_yx7, plot_y,
+    ncol=5, widths=c(2, 2, 2, 2, 1),
+    nrow=2, heights=c(1, 2)
+)
+```
+
+The figure above displays the distributions of each quantitative variable and the conditional distribution of `capsule` given the quantitative covariates. The Gleason score and PSA levels appear to be strongly associated with `capsule`, while tumor volume is moderately correlated with it and age has almost no relationship.
+
+# Part 1 - Model building
+
+We would now like to create a logistic regression model that accurately predicts whether a given cancer patient has penetration of the prostatic capsule based on some subset of the covariates.
+
+## Centering the covariates
+
+First, we will center the continuous independent variables by subtracting their median. This will improve the interpretability of the estimated model such that the intercept coefficient represents the log odds of the outcome for a patient with median values for the continuous predictors rather than zero values.
+
+```{r}
+# subtract median from quantitative variables
+
+subtract_median = function(data, train_data) {
+  data$age_c = data$age - median(train_data$age)
+  data$psa_c = data$psa - median(train_data$psa)
+  data$vol_c = data$vol - median(train_data$vol)
+  data$gleason_c = data$gleason - median(train_data$gleason)
+  return(data)
+}
+data = subtract_median(data, data)
+
+data %>%
+  group_by(id) %>%
+  select(c('id', 'age_c', 'psa_c', 'vol_c', 'gleason_c')) %>%
+  melt(id.vars='id') %>%
+  group_by(variable) %>%
+  summarize(
+    count=n(),
+    mean=mean(value),
+    std=sd(value),
+    min=min(value),
+    Q1=quantile(value, 0.25),
+    Q2=quantile(value, 0.50),
+    Q3=quantile(value, 0.75),
+    max=max(value)
+  ) %>%
+  mutate_if(is.double, round, digits=2)
+```
+
+## Fitting logistic regression
+
+Next, we will fit seven different logistic regression models with different sets of predictors. For each model, we compute the total model deviance, the pseudo R-squared, the Akaike information criterion (AIC), and the Bayes information criterian (BIC). The results are shown in the table below.
+
+```{r}
+
+logreg = function(data, formula) {
+  glm(formula, family=binomial(link='logit'), data=data)
+}
+
+models = list()
+models[[1]] = logreg(data, capsule ~ dpros + gleason_c + psa_c)
+models[[2]] = logreg(data, capsule ~ dpros + gleason_c + psa_c + dcaps)
+models[[3]] = logreg(data, capsule ~ dpros + gleason_c + psa_c + vol_c)
+models[[4]] = logreg(data, capsule ~ dpros + gleason_c + psa_c + age_c)
+models[[5]] = logreg(data, capsule ~ dpros + gleason_c + psa_c + race)
+models[[6]] = logreg(data, capsule ~ dpros + gleason_c + psa_c + vol_c + race)
+models[[7]] = logreg(data, capsule ~ dpros + gleason_c + psa_c + dcaps + vol_c + age_c + race)
+null_model = logreg(data, capsule ~ 1)
+
+pseudo_R2 = function(model) {
+  LL = logLik(model)
+  null_LL = logLik(null_model)
+  (null_LL - LL)/null_LL
+}
+
+BIC = function(model) {
+  LL = logLik(model)
+  n = length(model$residuals)
+  k = length(model$coefficients)
+  -2*LL + k*log(n)
+}
+
+predictors = function(model) {
+  paste(model$formula)[3]
+}
+
+metrics = data.frame(id=1:length(models))
+metrics$predictors = sapply(models, predictors)
+metrics$deviance = sapply(models, deviance)
+metrics$pseudo_R2 = sapply(models, pseudo_R2)
+metrics$AIC = sapply(models, AIC)
+metrics$BIC = sapply(models, BIC)
+metrics %>% mutate_if(is.double, signif, digits=4)
+```
+From the table of results, we see that model 7 has the lowest deviance (374.5) and highest pseudo R-squared (0.2577). However, model 3 has the lowest AIC (391.7) and model 1 has the lowest BIC (416.7). The AIC and BIC metrics penalize the number of parameters in the model, which is why simpler models with fewer predictors but worse deviance and $R^2$ have better AIC and BIC values compared to models with more predictors.
+
+## Model selection
+
+For this analysis, we want to select a model with good predictive performance on the training set but minimal unnecessary model complexity. We will select model 3 as our initial choice for the best model, since it has the lowest AIC score, which strikes a balance between predictive performance and parsimony.
+
+To validate our choice of model 3, we can conduct a likelihood ratio test compared to model 1, since model 1 is nested in model 3. The null hypothesis is that the two models have the same likelihood, while the alternative hypothesis is that model 3 has greater likelihood than model 1 due to the inclusion of the `vol_c` predictor. We will use a significance level of 0.05 to conduct the test.
+
+```{r, warning=FALSE}
+lrtest(models[[1]], models[[3]])
+```
+
+The likelihood ratio of the two models is 3.41, which follows a chi-squared distribution with 1 degree of freedom (since model 3 has 1 additional parameter compared to model 1). The p-value of 0.065 indicates that we would have a 6.5% probability of observing a likelihood ratio this large if the null hypothesis were true. Therefore, we do not reject the null hypothesis, and we do not have sufficient evidence to conclude that the additional `vol_c` predictor improves the likelihood compared to model 1. Since the likelihood ratio test does not support our selection of model 3 over model 1, we revert our choice of the best model to be model 1.
+
+## Interpretation of coefficients
+
+The coefficients of a logistic regression model are interpretable as the log of the odds ratio of the outcome conditioned on different values of the independent variable. The coefficients and exponentiated coefficients of model 1 are shown above, which we will now interpret. 
+
+```{r}
+model = models[[1]]
+coefficients(model)
+exp(coefficients(model))
+```
+The intercept of -1.927 means that a baseline patient (no nodules detected in rectal exam, Gleason score of 6, PSA level of 8.8 mg/ml) has 0.1455 odds of having a penetrated prostatic capsule, corresponding to a probability of 12.7%. A patient with a left nodule, right nodule, or both has 2.157, 4.706, or 4.160 times the odds of having a penetrated capsule, respectively, compared to a baseline patient with no nodule. Each unit increase in a patient's Gleason score increases their log-odds of a penetrated prostatic capsule by 0.994, while a 1 mg/ml increase in PSA increases their log-odds by 0.0273.
+
+## Predicted probability
+
+We can now use our chosen model to predict the probability that a future prostate cancer patient has penetration of the prostatic capsule. We will consider a hypothetical 65 year old white man who has a left unilobar nodule but no capsular involvement detected in their rectal exam. The patient has 1.4 mg/ml prostatic specific antigen, a tumor volume of 0 cm^3, and a Gleason score of 6.
+
+```{r}
+new_data = data.frame(capsule=NA, age=65, race=1, dpros=2, dcaps=1, psa=1.4, vol=0, gleason=6) %>%
+  convert_factors() %>%
+  subtract_median(data)
+
+new_data
+```
+
+```{r}
+logit = predict(model, new_data)
+phat = predict(model, new_data, type='response')
+cat(sprintf('predicted probability = %.4f (logit = %.4f)', phat, logit))
+```
+
+The model predicts that the patient would have a 20.4% probability of having penetration of the prostatic capsule.
+
+# Part 2 - Model diagnostics
+
+Now that we have selected our final logistic regression model as model 1, we can investigate it by assessing the quality of the fit and performing model diagnostics to assess outliers and influential observations.
+
+## Overall model fit
+
+As seen in the results table above, model 1 has a deviance of 381.1, which can be interpreted as a comparison of the model's log likelihood to that of a saturated model (one that fits the data perfectly). The model has a pseudo R-squared of 0.2446, which implies that the set of predictors included in the model improved its likelihood by 24.46% compared to a model with only an intercept term.
+
+We can also perform a Hosmer-Lemeshow goodness-of-fit test to assess model fit. The null hypothesis is that there is no difference between the model predictions and the data, while the alternative hypothesis is that the model is significantly different from the data due to being misspecified.
+
+```{r}
+performance_hosmer(model)
+```
+The p-value of 0.265 indicates that we would expect a 26.5% probability of seeing a test statistic this large if the null hypothesis were true. Therefore, we do not reject the null hypothesis at a 5% significance level, so we do not have evidence that the model is misspecified. This implies that the model fits the data well.
+
+```{r, fig.width=8.5, fig.height=2.85}
+
+data$predicted = predict(model, type='response')
+data$studentized_residual = residuals(model, 'pearson') / sqrt(1 - hatvalues(model))
+data$leverage = hatvalues(model)
+data$cooks_distance = cooks.distance(model)
+
+plot_rp = data %>%
+  ggplot(aes(x=predicted, y=studentized_residual, color=capsule)) +
+  geom_point() +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none')
+
+plot_hp = data %>%
+  ggplot(aes(x=predicted, y=leverage, color=capsule)) +
+  geom_point() +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none')
+
+plot_bp = data %>%
+  ggplot(aes(x=predicted, y=cooks_distance, color=capsule)) +
+  geom_point() +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none')
+
+grid.arrange(
+  plot_rp, plot_hp, plot_bp,
+  ncol=3
+)
+```
+
+The figure above portrays the Studentized residuals, the leverage, and the Cook's distance of the training data points, each plotted with respect to the predicted probabilities. We will now use these to identify outliers and patients with high leverage or excessive influence on the model fit.
+
+## Patients with high residuals
+
+We will first investigate patients for whom the model's predictions were very inaccurate. We will identify these outliers by using a cutoff of 3 on the absolute value of the Studentized residuals. This classifies two patients as outliers, which are shown below.
+
+```{r}
+data[abs(data$studentized_residual) > 3,]
+```
+
+The first outlier is patient 87. The model predicted that they have a 93.7% probability of having a penetrated prostatic capsule due to the fact that bilobar nodules were detected in their rectal exam and they had a Gleason score of 9. However, this patient did not exhibit capsular penetration.
+
+The second outlier is patient 288, who the model predicted would have only a 4.8% chance of prostatic capsule penetration. This patient did in fact have capsule penetration, despite having no detected nodules in their rectal exam and having a moderate Gleason score and PSA level.
+
+## Patients with high leverage
+
+Next we will identify high leverage patients. These are patients who are outliers in the design space, meaning their predictor values are far from the mean of the data set. To detect high leverage patients, we will use a cutoff of $2k/n$ = 0.032. This results in 22 patients being classified as high-leverage, and they are listed below.
+
+```{r}
+k = length(model$coefficients)
+n = length(model$residuals)
+print(2*k/n)
+data[abs(data$leverage) > 2*k/n,]
+```
+To exemplify why these patients are outliers in terms of predictor values, we can look at patients 11 and 78. Patient 11 had bilobar nodules detected in his rectal exam, but a very low PSA level of just 4 mg/ml. On the other hand, patient 78 had no nodules detected in his rectal exam, but has a very high Gleason score of 9. These combinations of covariates values are unusual, so the patients have high leverage.
+
+## Influential patients
+
+Finally, we will use the Cook's distance metric to classify patients as influential to the estimated model. These are patients that change the model's coefficients significantly when removed from the training data set. We will detect influential patients using a cutoff of $4/n$ = 0.01 on the Cook's distance, which causes the 25 patients shown below to be identified as influential to the model.
+
+```{r}
+n = length(model$residuals)
+print(4/n)
+data[abs(data$cooks_distance) > 4/n,]
+```
+Cook's distance takes into account both the leverage and the residual of each observation, so patients with a high degree of influence are detected as such based on a combination of these two factors. For instance, patients 87 and 288 were previously detected as outliers in terms of their residuals, but they also show up as influential patients based on Cook's distance. Several of the other influential patients were previously identified as high leverage, including patients 4, 74, and 157. Many of the influential patients were not previously detected as outliers or as having high leverage--in these cases, the combination of the two factors is what causes them to exert inordinate influence on the estimated parameters.
+
+## Conclusion
+
+Through this analysis, we have selected a simple logistic regression model that predicts penetration of the prostatic capsule with good accuracy on the training data set. We have verified the model fit through assessment of the deviance, pseudo R-squared, and goodness-of-fit test. The model's Studentized residuals were only greater than 3 standard errors in magnitude on 2 patients. However, 22 patients were identified as being high leverage and 25 were identified as influential to the model estimates, which could be problematic. Overall, the model fits the data well, but further investigation of the influential observations and validation with an independent test set are needed to establish the robustness of the model.
+
+_
+
