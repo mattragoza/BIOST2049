@@ -1,0 +1,499 @@
+---
+title: "BIOST 2049 - Data Analysis #5"
+author: "Matthew Ragoza"
+date: "3/25/2022"
+always_allow_html: true
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: false
+    toc_depth: '3'
+    code_folding: hide
+  github_document:
+    toc: true
+---
+
+# Prostate cancer study
+
+In this analysis, we will continue to investigate the data set from data analysis 4. The data originated from a study at an academic cancer center on the penetration of the prostatic capsule among patients with prostate cancer. The study involved 374 patients with prostate cancer, 151 of whom had tumors that penetrated the prostatic capsule.
+
+```{r warning=FALSE, message=FALSE}
+library('dplyr')
+library('reshape2')
+library('ggplot2')
+library('gridExtra')
+library('scales')
+library('stats')
+requireNamespace('pROC')
+requireNamespace('caret')
+requireNamespace('nnet')
+requireNamespace('generalhoslem')
+library('conflicted')
+
+setwd('C:\\Users\\mtr22\\Code\\BIOST2049\\module-5\\data-analysis')
+data <- read.csv('DA4.csv')
+
+convert_factors = function(data) {
+  data$capsule = factor(data$capsule, levels=0:1, labels=c('no', 'yes'), ordered=FALSE)
+  data$race = factor(data$race, levels=1:2, labels=c('white', 'black'), ordered=FALSE)
+  data$dpros = factor(data$dpros, levels=1:4, labels=c('none', 'left', 'right', 'both'), ordered=FALSE)
+  data$dcaps = factor(data$dcaps, levels=1:2, labels=c('no', 'yes'), ordered=FALSE)
+  return(data)
+}
+
+data = convert_factors(data)
+data
+```
+
+## Categorical variables
+
+```{r}
+data %>%
+  group_by(capsule) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+
+```{r}
+data %>%
+  group_by(race) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+
+```{r}
+data %>%
+  group_by(dpros) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+```{r}
+data %>%
+  group_by(dcaps) %>%
+  summarize(count=n(), .groups='drop_last') %>%
+  mutate(proportion=count/sum(count)) %>%
+  mutate_if(is.double, percent_format(accuracy=0.01))
+```
+
+
+```{r, fig.width=8, fig.height=3.6, dpi=100, warning=FALSE, message=FALSE}
+
+blank <- ggplot() + theme_void()
+
+red = 'orchid'
+green = 'mediumseagreen'
+blue = 'cornflowerblue'
+
+alpha_scale = function(data, x, y){
+  cond = data %>%
+    group_by({{x}}, {{y}}) %>%
+    summarize(n=n(), .groups='drop_last') %>%
+    mutate(prob=n/sum(n))
+  scale_alpha_continuous(range=range(cond$prob))
+}
+
+# histograms
+
+plot_x1 <- data %>%
+  ggplot(aes(x=race)) +
+  geom_bar(fill=green) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(n.breaks=4) +
+  xlab(NULL)
+
+plot_x2 <- data %>%
+  ggplot(aes(x=dpros)) +
+  geom_bar(fill=green) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(n.breaks=3) +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_x3 <- data %>%
+  ggplot(aes(x=dcaps)) +
+  geom_bar(fill=green) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_y_continuous(n.breaks=4) +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_y <- data %>%
+  ggplot(aes(y=capsule)) +
+  geom_bar(fill=red) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  scale_x_continuous(n.breaks=3) +
+  ylab(NULL)
+
+# scatter plots
+
+plot_yx1 <- data %>%
+  group_by(race, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=race, y=capsule, alpha=prop)) +
+  geom_raster(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  alpha_scale(data, race, capsule)
+
+plot_yx2 <- data %>%
+  group_by(dpros, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=dpros, y=capsule, alpha=prop)) +
+  geom_raster(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  alpha_scale(data, dpros, capsule) +
+  ylab(NULL)
+
+plot_yx3 <- data %>%
+  group_by(dcaps, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=dcaps, y=capsule, alpha=prop)) +
+  geom_raster(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  alpha_scale(data, dcaps, capsule) +
+  ylab(NULL)
+
+# arrange plots on grid
+
+grid.arrange(
+    plot_x1,  plot_x2,  plot_x3,  blank,
+    plot_yx1, plot_yx2, plot_yx3, plot_y,
+    ncol=4, widths=c(2, 2, 2, 1),
+    nrow=2, heights=c(1, 2)
+)
+```
+
+## Quantitative variables
+
+```{r}
+data %>%
+  group_by(id) %>%
+  select_if(is.numeric) %>%
+  melt(id.vars='id') %>%
+  group_by(variable) %>%
+  summarize(
+    count=n(),
+    mean=mean(value),
+    std=sd(value),
+    min=min(value),
+    Q1=quantile(value, 0.25),
+    Q2=quantile(value, 0.50),
+    Q3=quantile(value, 0.75),
+    max=max(value)
+  ) %>%
+  mutate_if(is.double, round, digits=2)
+```
+
+```{r, fig.width=8.5, fig.height=3.2}
+
+# function for mapping continuous values to bin centers
+discretize = function(x, breaks) {
+  centers = head(breaks, -1) + diff(breaks)/2
+  idxs = cut(x, breaks=breaks, include.lowest=TRUE, labels=FALSE)
+  centers[idxs]
+}
+
+alpha_scale = function(data, x, y){
+  cond = data %>%
+    group_by({{x}}, {{y}}) %>%
+    summarize(n=n(), .groups='drop_last') %>%
+    mutate(prob=n/sum(n))
+  scale_alpha_continuous(range=range(cond$prob))
+}
+
+# grid settings
+
+# age
+x4_breaks = seq(45, 85, 10)
+x4_scale = scale_x_continuous(limits=c(45, 85), breaks=x4_breaks)
+
+# psa
+x5_breaks = seq(0, 150, 25)
+x5_scale = scale_x_continuous(limits=c(0, 150), breaks=x5_breaks)
+
+# vol
+x6_breaks = seq(0, 100, 20)
+x6_scale = scale_x_continuous(limits=c(0, 100), breaks=x6_breaks)
+
+# gleason
+x7_breaks = seq(3.5, 9.5, 1)
+x7_scale = scale_x_continuous(limits=c(3.5, 9.5), breaks=seq(3, 9, 1))
+
+# capsule
+y_scale = scale_y_continuous(limits=c(0, 1), breaks=seq(0, 1, 0.25))
+
+# histograms
+
+plot_x4 <- data %>%
+  ggplot(aes(x=age)) +
+  geom_histogram(fill=green, breaks=x4_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x4_scale +
+  xlab(NULL)
+
+plot_x5 <- data %>%
+  ggplot(aes(x=psa)) +
+  geom_histogram(fill=green, breaks=x5_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x5_scale +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_x6 <- data %>%
+  ggplot(aes(x=vol)) +
+  geom_histogram(fill=green, breaks=x6_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x6_scale +
+  xlab(NULL) +
+  ylab(NULL)
+
+plot_x7 <- data %>%
+  ggplot(aes(x=gleason)) +
+  geom_histogram(fill=green, breaks=x7_breaks) +
+  theme_classic() +
+  theme(panel.grid.major=element_line()) +
+  x7_scale +
+  xlab(NULL) +
+  ylab(NULL)
+
+# scatter plots
+
+plot_yx4 <- data %>%
+  mutate(age=discretize(age, breaks=x4_breaks)) %>%
+  group_by(age, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=age, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x4_scale + alpha_scale(data, discretize(age, breaks=x4_breaks), capsule)
+
+plot_yx5 <- data %>%
+  mutate(psa=discretize(psa, breaks=x5_breaks)) %>%
+  group_by(psa, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=psa, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) + 
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x5_scale + alpha_scale(data, discretize(psa, breaks=x5_breaks), capsule) +
+  ylab(NULL)
+
+plot_yx6 <- data %>%
+  mutate(vol=discretize(vol, breaks=x6_breaks)) %>%
+  group_by(vol, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=vol, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x6_scale + alpha_scale(data, discretize(vol, breaks=x6_breaks), capsule) +
+  ylab(NULL)
+
+plot_yx7 <- data %>%
+  group_by(gleason, capsule) %>%
+  summarize(n=n(), .groups='drop_last') %>% mutate(prop=n/sum(n)) %>%
+  ggplot(aes(x=gleason, y=capsule, alpha=prop)) +
+  geom_tile(fill=blue) +
+  theme_classic() +
+  theme(panel.grid.major=element_line(), legend.position='none') +
+  x7_scale + alpha_scale(data, gleason, capsule) +
+  ylab(NULL)
+
+# arrange plots on grid
+
+grid.arrange(
+    plot_x4,  plot_x5,  plot_x6,  plot_x7,  blank,
+    plot_yx4, plot_yx5, plot_yx6, plot_yx7, plot_y,
+    ncol=5, widths=c(2, 2, 2, 2, 1),
+    nrow=2, heights=c(1, 2)
+)
+```
+
+# 1. Logistic regression prediction
+
+We will evaluate a binary logistic regression model from the previous analysis in terms of its discrimination performance using an ROC curve, c-statistic, and confusion matrix.
+
+## a. Centering the covariates
+
+As in the previous analysis, we will center the continuous independent variables by subtracting their median to improve the model interpretability.
+
+```{r}
+# subtract median from quantitative variables
+
+subtract_median = function(data, train_data) {
+  data$age_c = data$age - median(train_data$age)
+  data$psa_c = data$psa - median(train_data$psa)
+  data$vol_c = data$vol - median(train_data$vol)
+  data$gleason_c = data$gleason - median(train_data$gleason)
+  return(data)
+}
+data = subtract_median(data, data)
+
+data %>%
+  group_by(id) %>%
+  select(c('id', 'age_c', 'psa_c', 'vol_c', 'gleason_c')) %>%
+  melt(id.vars='id') %>%
+  group_by(variable) %>%
+  summarize(
+    count=n(),
+    mean=mean(value),
+    std=sd(value),
+    min=min(value),
+    Q1=quantile(value, 0.25),
+    Q2=quantile(value, 0.50),
+    Q3=quantile(value, 0.75),
+    max=max(value)
+  ) %>%
+  mutate_if(is.double, round, digits=2)
+```
+
+## b. Fitting logistic regression model
+
+We will fit logistic regression model 3 from the previous analysis, which predicts penetration of the prostatic capsule based on the following covariates: `dpros`, `gleason_c`, `psa_c`, and `vol_c`.
+
+```{r}
+
+logreg = function(data, formula) {
+  glm(formula, family=binomial(link='logit'), data=data)
+}
+
+model = logreg(data, capsule ~ dpros + gleason_c + psa_c + vol_c)
+
+summary(model)
+```
+
+From the regression summary above, we can see that the model has a deviance of 377.71 and an AIC of 391.71. All of the predictors are significantly associated with the outcome at the 0.05 significance level, adjusting for the other covariates in the model, except for `vol_c`, the tumor volume. This agrees with the result of the previous analysis.
+
+## c. ROC curve and c-statistic
+
+Now we will assess the predictive performance of the model in terms of its discrimination ability using a receiver-operating characteristic (ROC) curve. The curve below plots the model sensitivity against 1 - specificity when varying the threshold on the predicted probability that we use to discriminate between the output classes.
+
+```{r, fig.width=5, fig.height=5}
+data$phat = predict(model, type='response')
+roc = pROC::roc(
+  capsule ~ phat, data, ci=TRUE,
+  plot=TRUE, print.auc=TRUE, print.auc.x=0.6, print.auc.y=0.1,
+  grid=TRUE, grid.h=0:4/5, grid.v=0:4/5, grid.lty=1, grid.ltx=1
+)
+roc
+```
+In addition to generating the curve above, we see that the area under the curve (AUC) is 0.822, with a DeLong 95% confidence interval of 0.779-0.864. The AUC is equivalent to the c-statistic, which is the probability that a random pair of positive and negative observations are ranked correctly using the predicted probability (i.e. that the positive observation has a higher predicted probability than the negative). Therefore, our model has an 82.2% probability of correctly ranking a pair of positive and negative observations.
+
+## d. Sensitivity and specificity
+
+The c-statistic gives an overall measure of the model's discrimination ability across all possible thresholds, but if we choose a specific threshold we can use this to compute additional metrics derived from the confusion matrix.
+
+```{r}
+threshold = 0.5
+data$yhat = factor(data$phat > threshold, levels=c(FALSE, TRUE), labels=c('no', 'yes'))
+caret::confusionMatrix(data$yhat, data$capsule, positive='yes')
+```
+In the confusion matrix above, we have set the discrimination threshold to 0.5. At this threshold, the model has a sensitivity of 0.623 and specificity of 0.843. The sensitivity is the probability of a positive predicted label given a truly positive observation, while the specificity is the probability of a negative predicted label given a truly negative observation. Using a threshold of 0.5, our model has a 62.3% probability of assigning a positive label to a positive example and an 84.3% probability of assigning a negative label to a negative example.
+
+# 2. Multinomial logistic regression
+
+In the second phase of this analysis, we will investigate a different prediction task. We want to build a model that predicts the result of the rectal examination (`dpros`) based on other covariates in the data set. As this is a categorical variable with more than two levels, we will use multinomial logistic regression.
+
+## a. Fitting the full model
+
+We will now fit a full multinomial logistic regression model that predicts `dpros` given all of the other covariates in the data set. The summary of the model fitting procedure and estimated coefficients are displayed below.
+
+```{r}
+model = nnet::multinom(
+  dpros ~ race + dcaps + age_c + psa_c + vol_c + gleason_c, data
+)
+m = summary(model)
+m
+```
+From the summary, we see that the final residual deviance of the model is 939.8 and the AIC is 981.8. I used the model coefficients and standard errors to generate p-values for two-sided t tests on the model parameters using a null hypothesis value of 0. The p-values are shown below.
+
+```{r}
+n = nrow(m$residuals)
+k = length(m$coefficients)
+t = m$coefficients / m$standard.errors
+p = pt(abs(t), df=n-k, lower=FALSE) * 2 # two-tailed
+p
+```
+From the t-tests on the model parameters, we see that the only covariate that was signficantly associated with all outcomes of the rectal exam at a 0.05 significance level was the Gleason score. Age was significantly associated with the detection of a right nodule during the exam at a 0.05 level, and the detection of capsule involvement during the exam was significantly associated with the detection of bilobar nodules during the exam at a 0.05 level. Out of all the remaining covariates, the PSA level was closest to being significantly associated with the rectal exam outcome, but was not significant at the 0.05 or even 0.10 level for any outcome level.
+
+## b. Interpretation of coefficients
+
+The coefficients of a multinomial logistic regression model are interpretable as the change in the log-odds of the outcome for a given change in the independent variable. Since there are separate parameters for the conditional distribution of each level of the outcome, we interpret each parameter separately as the change in log-odds for a given outcome level compared to the reference outcome level. In our case, the reference outcome is the absence of any nodules detected in the rectal exam. The exponentiated model coefficients are shown below.
+
+```{r}
+exp(coefficients(model))
+```
+The coefficients on the Gleason score are 0.403, 0.443, and 0.547 for the outcomes `left`, `right`, and `both`, respectively. A unit increase in the Gleason score thus corresponds to a 0.403 increase in the log-odds of detecting a left nodule, 0.443 increase in the log-odds of detecting a right nodule, and 0.547 increase in the log-odds of both, compared to having no nodules detected during the exam. The coefficient on `dcapsyes` of 1.527 for the `both` nodules outcome means that patients who had capsular involvement detected during the rectal exam have 4.58 times the odds of having bilobar nodules detected than those who did not have capsular involvement detected.
+
+## c. Testing the quality of fit
+
+We can perform a Hosmer-Lemeshow goodness-of-fit test to assess the quality of the multinomial logistic model fit. This is a chi-squared test that compares the predicted probabilities of the outcomes to those observed in the data set. The null hypothesis is that the observed outcomes values follow the same probability distribution as predicted by the model, and the alternative hypothesis is that at least one of the outcome levels does not follow the predicted probability distribution. In other words, the alternative hypothesis is that the model is misspecified. We will now run the test.
+
+```{r}
+generalhoslem::logitgof(data$dpros, fitted(model))
+```
+From the test output, we see a chi-squared test statistic of 32.59 with 24 degrees of freedom and a p-value of 0.113. We would observe a chi-squared statistic this large 11.3% of the time if the null hypothesis were true. Therefore, we do not reject the null hypothesis at a 5% significance level. We do not have evidence that the model is misspecified, which suggests that it fits the data well.
+
+## d. Fitting a reduced model
+
+Despite that the full model passed the goodness-of-fit test, we would like to simplify it by removing unimportant covariates. We previously found that the only covariates significantly associated with any result of the rectal exam were the Gleason score, detection of capsular involvement during the exam, and the age of the patient. The PSA level was not significant, but it is a known predictor of prostate cancer, so we will not remove it. We will now fit a reduced multinomial logistic regression model using only these four covariates.
+
+```{r}
+reduced_model = nnet::multinom(
+  dpros ~ dcaps + age_c + psa_c + gleason_c, data
+)
+m = summary(reduced_model)
+m
+```
+The regression summary above shows that the reduced model attained a deviance of 942.4 and an AIC of 972.4. This is a slight increase in the deviance compared to the full model (939.8), corresponding to a lower model likelihood on the data set. However, the AIC improved (from 981.8) due to the reduction in the number of model parameters, so the model is more parsimonious and should be preferred according to this criterion.
+
+```{r}
+n = nrow(m$residuals)
+k = length(m$coefficients)
+t = m$coefficients / m$standard.errors
+p = pt(abs(t), df=n-k, lower=FALSE) * 2 # two-tailed
+p
+```
+The p-values for t-tests on the reduced model coefficients are displayed above. The same coefficients were found to be significantly associated with rectal exam outcomes in the reduced model as in the full model.
+
+## e. Relative risk ratio
+
+The exponentiated coefficients of the reduced model are shown below.
+
+```{r}
+exp(coefficients(reduced_model))
+```
+The coefficient on the Gleason score predictor for the detection of bilobar nodules is 0.0121 in the reduced model, and the exponentiated coefficient is 1.709. This can be interpretted as meaning that relative risk of the bilobar nodule results compared to no nodules in the rectal exam increases by 1.709 for each unit increase in the Gleason score.
+
+## f. Retesting the fit quality
+
+We will now reassess the model fit by applying another Hosmer-Lemeshow test on the reduced model, comparing its predicted probabilities over the rectal exam outcomes to those observed in the data set. The null hypothesis is that the model is correctly specified and the alternative hypothesis is that it is misspecified.
+
+```{r}
+generalhoslem::logitgof(data$dpros, fitted(reduced_model))
+```
+The resulting p-value of 0.0946 indicates that we would have a 9.46% probability of observing a test statistic at least as great as the obtained value of 33.47 under the null hypothesis. Consequently, we do not reject the null hypothesis at a 5% significance level, so the model fits the data
+
+We can further perform a likelihood ratio test to compare the full model and reduced model. The null hypothesis is that none of the additional covariates in the full model are significantly associated with the outcome (i.e. their coefficients are zero). The alternative hypothesis is that at least one of the added covariates are associated with the outcome. The result of the test is summarized below.
+
+```{r}
+anova(model, reduced_model)
+```
+The p-value of the likelihood ratio test is 0.863, which corresponds to an 86.3% probability of observing a likelihood ratio this large assuming the null hypothesis is true. We do not reject the null hypothesis at a 5% significance level. Therefore, we do not have evidence that the extra predictors in the full model are associated with the outcome, so the reduced model is the "true" model.
+
+_
+
